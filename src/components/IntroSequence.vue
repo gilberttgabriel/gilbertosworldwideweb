@@ -16,6 +16,8 @@ const inputValue = ref('')
 const inputEl = ref<HTMLInputElement | null>(null)
 
 const stageEl = ref<HTMLElement | null>(null)
+const dotsExpanded = ref(false)
+const showDots = ref(false)
 
 async function typewrite(text: string, target: (v: string) => void, speed = 55) {
   target('')
@@ -30,12 +32,12 @@ async function sleep(ms: number) {
 }
 
 async function runSequence() {
-  await sleep(1000)
+  await sleep(500)
 
   // "quien eres???" typewriting
   stage.value = 'asking'
   await typewrite('quien eres???', (v) => (typedText.value = v))
-  await sleep(300)
+  await sleep(150)
 
   // eyebrow raises: swap art
   currentArt.value = doubtEyes
@@ -59,10 +61,20 @@ async function submitName() {
   stage.value = 'welcome'
   await sleep(200)
   await typewrite(`bienvenido ${name}`, (v) => (typedText.value = v), 45)
-  await sleep(800)
 
+  // 4 dots appear solidly (centered) once the welcome has finished typing
+  showDots.value = true
+  await sleep(200)
+
+  // eyes + text fade away, dots stay put
   stage.value = 'leaving'
-  await sleep(900)
+  await sleep(300)
+
+  // then the dots expand out to the corners
+  dotsExpanded.value = true
+  await sleep(750)
+  // dots have landed on the corners — hand off to the Hero's corner marks
+  // (which sit at the exact same spots) so the swap is seamless
   emit('done')
 }
 
@@ -109,8 +121,15 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="intro__squares">
-      <span v-for="n in 24" :key="n" class="square"></span>
+    <div
+      v-if="showDots"
+      class="intro__transition-dots"
+      :class="{ 'is-expanded': dotsExpanded }"
+    >
+      <span class="transition-dot transition-dot--tl" />
+      <span class="transition-dot transition-dot--tr" />
+      <span class="transition-dot transition-dot--br" />
+      <span class="transition-dot transition-dot--bl" />
     </div>
   </div>
 </template>
@@ -127,6 +146,10 @@ onUnmounted(() => {
   box-sizing: border-box;
   z-index: 1000;
   overflow: hidden;
+  transition: background-color 0.4s ease 0.15s;
+}
+.intro.is-leaving {
+  background-color: transparent;
 }
 
 .intro__stack {
@@ -136,6 +159,10 @@ onUnmounted(() => {
   width: min(66vw, calc(52vh * 1112 / 525));
   max-width: 94vw;
   transform: translateY(-6vh);
+  transition: opacity 0.3s ease;
+}
+.is-leaving .intro__stack {
+  opacity: 0;
 }
 
 .intro__art {
@@ -185,7 +212,7 @@ onUnmounted(() => {
 }
 
 .intro__input {
-  width: min(24vw, 240px);
+  width: clamp(120px, 24vw, 240px);
   border: none;
   border-bottom: 2px solid #e5e2da;
   background: transparent;
@@ -221,28 +248,39 @@ onUnmounted(() => {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.intro__squares {
-  position: absolute;
+.intro__transition-dots {
+  position: fixed;
   inset: 0;
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  grid-template-rows: repeat(5, 1fr);
   pointer-events: none;
   z-index: 2;
+  /* the whole group fades in solid, no per-dot scaling or motion */
+  animation: dots-appear 0.18s ease-out;
 }
-.square {
-  background: #ff3d00;
-  transform: scale(0);
+@keyframes dots-appear {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
-.is-leaving .square {
-  animation: expand 0.5s cubic-bezier(.7,0,.3,1) forwards;
-}
-.is-leaving .square:nth-child(4n+1) { animation-delay: 0ms; }
-.is-leaving .square:nth-child(4n+2) { animation-delay: 40ms; }
-.is-leaving .square:nth-child(4n+3) { animation-delay: 80ms; }
-.is-leaving .square:nth-child(4n+4) { animation-delay: 120ms; }
 
-@keyframes expand {
-  to { transform: scale(1.02); }
+.transition-dot {
+  position: fixed;
+  width: 5px;
+  height: 5px;
+  background: #ff3d00;
+  transform: translate(-50%, -50%);
+  transition:
+    left 0.7s cubic-bezier(0.5, 0, 0.2, 1),
+    top 0.7s cubic-bezier(0.5, 0, 0.2, 1);
 }
+
+/* start: a tight 2x2 cluster centered near eye level */
+.transition-dot--tl { left: calc(50% - 4.5px); top: calc(46% - 4.5px); }
+.transition-dot--tr { left: calc(50% + 4.5px); top: calc(46% - 4.5px); }
+.transition-dot--br { left: calc(50% + 4.5px); top: calc(46% + 4.5px); }
+.transition-dot--bl { left: calc(50% - 4.5px); top: calc(46% + 4.5px); }
+
+/* expanded: corners match Hero's corner marks exactly */
+.is-expanded .transition-dot--tl { left: clamp(12px, 2.5vw, 32px); top: clamp(12px, 2.5vw, 32px); }
+.is-expanded .transition-dot--tr { left: calc(100vw - clamp(12px, 2.5vw, 32px)); top: clamp(12px, 2.5vw, 32px); }
+.is-expanded .transition-dot--br { left: calc(100vw - clamp(12px, 2.5vw, 32px)); top: calc(100vh - clamp(12px, 2.5vw, 32px)); }
+.is-expanded .transition-dot--bl { left: clamp(12px, 2.5vw, 32px); top: calc(100vh - clamp(12px, 2.5vw, 32px)); }
 </style>
