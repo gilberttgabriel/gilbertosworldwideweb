@@ -2,7 +2,11 @@
 <html lang="">
   <head>
     <meta charset="UTF-8">
-    <link rel="icon" href="/favicon.ico">
+    <!-- the .ico first as the fallback, the SVG after it: a browser that
+         understands both picks the vector one, and the ones that don't simply
+         never see it. Same #ff3d00 as the page's own orange. -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

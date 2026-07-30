@@ -6,6 +6,21 @@ import amadtImg from '../assets/amadt-screenshot.png'
 import avranPortfolioImg from '../assets/avransportfolio.png'
 import gilbertosImg from '../assets/gilbertos.png'
 
+// Blue burst of the mobile frame, traced from assets/BLUE STAR.webp. That file
+// is lossy VP8 with no alpha channel — a white rectangle with a star painted on
+// it — so dropping it in as an <img> would punch a white box through the grid
+// background and through the words it is meant to sit on top of. These are its
+// own 22 vertices (11 rays), read off the bitmap's outer contour and simplified
+// until they cover 98.5% of the original's area, normalised into a 1000x1000
+// box. Its hub — the point the rays radiate from, which is what has to land on
+// a given spot, not the bbox centre — sits at 56.4% / 47.8% of that box.
+
+const burstPoints =
+  '774.7,0 729,277.6 970.2,226.2 762,391.2 1000,426.6 788.5,537 938.4,677.4 ' +
+  '718.4,651.7 854.4,933.5 578.1,728.8 348.6,1000 453.8,663.5 120.1,837.1 ' +
+  '351.8,587.4 0,531.6 319.9,464.1 135,320.5 362.4,334.4 190.2,69.7 475,266.9 ' +
+  '508,81.5 562.2,250.8'
+
 // yellow burst pinned in the corner: 14-point star, inner ratio 0.63 (Figma)
 const starPoints = (() => {
   const cx = 100, cy = 100, outer = 100, inner = 63, rays = 14
@@ -50,7 +65,35 @@ function closeProject() {
 
 <template>
   <section id="proyectos" class="projects">
-    <!-- left: scrollable list of project cards -->
+    <!-- full-screen cover: PROYECTOS is its own view, scrolled past like a
+         title card, before any project cards appear -->
+    <div class="projects__cover">
+      <svg class="projects__star" viewBox="0 0 200 200" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <polygon :points="starPoints" fill="#F8E10E" />
+      </svg>
+
+      <!-- mobile stand-in for the yellow star above (see the media query) -->
+      <svg class="projects__burst" viewBox="0 0 1000 1000" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <polygon :points="burstPoints" fill="#2415ff" />
+      </svg>
+
+      <span class="projects__word projects__word--pro">PRO</span>
+      <span class="projects__word projects__word--yec">YEC</span>
+      <span class="projects__word projects__word--tos">TOS</span>
+
+      <img :src="folderImg" class="projects__folder" alt="" draggable="false" />
+      <img :src="minecraftImg" class="projects__mc" alt="" draggable="false" />
+
+      <!-- the frame's corner marks. They exist site-wide on the Hero, but on
+           mobile Projects scrolls over the fixed Hero with an opaque background
+           and takes them off screen with it, so this view carries its own. -->
+      <span class="projects__corner projects__corner--tl" />
+      <span class="projects__corner projects__corner--tr" />
+      <span class="projects__corner projects__corner--br" />
+      <span class="projects__corner projects__corner--bl" />
+    </div>
+
+    <!-- stacked list of project cards, following the cover in normal scroll -->
     <div class="projects__list">
       <article
         v-for="p in projects"
@@ -79,21 +122,6 @@ function closeProject() {
       </article>
     </div>
 
-    <!-- right: static panel, sticky so it (and the star) stay pinned to the
-         bottom-right corner the whole time the cards scroll -->
-    <div class="projects__right">
-      <svg class="projects__star" viewBox="0 0 200 200" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <polygon :points="starPoints" fill="#F8E10E" />
-      </svg>
-
-      <span class="projects__word projects__word--pro">PRO</span>
-      <span class="projects__word projects__word--yec">YEC</span>
-      <span class="projects__word projects__word--tos">TOS</span>
-
-      <img :src="folderImg" class="projects__folder" alt="" draggable="false" />
-      <img :src="minecraftImg" class="projects__mc" alt="" draggable="false" />
-    </div>
-
     <div v-if="activeProject" class="project-modal" @click.self="closeProject">
       <div class="project-modal__box">
         <button class="project-modal__close" aria-label="Cerrar" @click="closeProject">✕</button>
@@ -115,8 +143,12 @@ function closeProject() {
   box-sizing: border-box;
 }
 
-/* left column: the project cards that scroll past */
+/* left column: the project cards that scroll past. The markup puts the cover
+   first (so mobile can show it as a title screen before the cards), so on
+   desktop this needs an explicit order to land on the left where it belongs —
+   flex row layout otherwise follows DOM order and would put it on the right. */
 .projects__list {
+  order: 1;
   flex: 1 1 46%;
   min-width: 0;
   display: flex;
@@ -176,8 +208,10 @@ function closeProject() {
 .box-corner--br { right: -1.5px; bottom: -1.5px; transform: translate(50%, 50%); }
 .box-corner--bl { left: -1.5px; bottom: -1.5px; transform: translate(-50%, 50%); }
 
-/* right column: stays pinned while the left scrolls */
-.projects__right {
+/* right column (desktop): stays pinned while the left scrolls. On mobile this
+   becomes its own full-screen view instead — see the media query below. */
+.projects__cover {
+  order: 2;
   position: sticky;
   top: 0;
   flex: 1 1 52%;
@@ -188,9 +222,11 @@ function closeProject() {
 
 .projects__star {
   position: absolute;
-  right: calc(-1 * clamp(16px, 3.5vw, 48px));
+  /* flush with the cover's own corner, so the 50%/50% translate below lands
+     the star's center exactly on that corner rather than somewhere near it */
+  right: 0;
   bottom: 0;
-  transform: translate(45%, 45%);
+  transform: translate(50%, 50%);
   transform-origin: center;
   width: min(56vw, 640px);
   aspect-ratio: 1;
@@ -198,8 +234,15 @@ function closeProject() {
   animation: proj-spin 40s linear infinite;
 }
 @keyframes proj-spin {
-  from { transform: translate(45%, 45%) rotate(0deg); }
-  to { transform: translate(45%, 45%) rotate(-360deg); }
+  from { transform: translate(50%, 50%) rotate(0deg); }
+  to { transform: translate(50%, 50%) rotate(-360deg); }
+}
+
+/* both belong to the mobile frame only — the desktop composition is the yellow
+   star above and the Hero's own corner marks. Switched on in the media query. */
+.projects__burst,
+.projects__corner {
+  display: none;
 }
 
 .projects__word {
@@ -211,9 +254,11 @@ function closeProject() {
   font-size: clamp(90px, 27cqw, 420px);
   line-height: 0.85;
 }
-.projects__word--pro { left: 2%; top: 4%; }
-.projects__word--yec { left: 44%; top: 38%; }
-.projects__word--tos { left: 6%; top: 70%; }
+/* stacked on the right half of the cover, clear of the folder/minecraft
+   artwork which stays on the left */
+.projects__word--pro { left: 5%; top: 2%; }
+.projects__word--yec { left: 56%; top: 36%; }
+.projects__word--tos { left: 5%; top: 70%; }
 
 .projects__folder {
   position: absolute;
@@ -300,8 +345,164 @@ function closeProject() {
   line-height: 1.5;
 }
 
+/* mobile: the two columns become one. PROYECTOS becomes its own full-screen
+   view (cover), then the cards follow below it in normal scroll. */
 @media (max-width: 760px) {
-  .projects { flex-direction: column; }
-  .projects__right { position: relative; height: 70svh; width: 100%; }
+  .projects {
+    flex-direction: column;
+    /* the base align-items: flex-start controls the cross axis, which once
+       this is a column means width — it would shrink both children to their
+       content instead of filling the screen */
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    /* the corner star deliberately overflows its column — on a narrow screen
+       that alone is enough to make the whole page pannable sideways. Safe to
+       clip here because .projects__cover stops being sticky just below, and
+       overflow: hidden on an ancestor is what breaks sticky. */
+    overflow: hidden;
+  }
+
+  .projects__cover {
+    order: 1;
+    position: relative;
+    /* the base rule's flex: 1 1 52% carries a flex-basis, which in a column
+       flex container overrides the height property outright — reset it so
+       height: 100svh is what actually sizes this element */
+    flex: none;
+    width: 100%;
+    height: 100svh;
+    /* the burst runs off the bottom edge by design; without this it would spill
+       onto the first project card instead of ending where the view ends */
+    overflow: hidden;
+
+    /* One word, broken over three lines — so what separates them is leading,
+       not screen real estate. These four numbers are the whole composition.
+         --word   font-size. A 3-glyph word inks 1.44em wide (DotGothic16
+                  advances 0.5em per Latin glyph) and the frame gives PRO 45.9%
+                  of the width: 0.459 / 1.44.
+         --ink    0.82 * --word, the measured ink height of one word.
+         --pitch  line to line. 1.003em leaves 0.183em of air between the ink of
+                  one line and the next — still tight enough that the three read
+                  as one word, but no longer crowding. This is the knob: the
+                  block stays centred and the drawings follow it, because --top
+                  and every element below are stated in multiples of it.
+         --top    where PRO's ink starts, placing the 3-line block on the middle
+                  of the screen. Block height is 2 * --pitch + --ink. */
+    --word: 34cqw;
+    --ink: 26.16cqw;
+    --pitch: 51cqw;
+    --top: calc(50% - (var(--pitch) + var(--ink) / 2));
+  }
+
+  /* ---------------------------------------------------------------------
+     The Figma frame, rebuilt. Its canvas is about 3:4 where a phone is nearer
+     9:19.5, and spreading the vertical positions across that taller screen —
+     which is what this block used to do — stretched the gaps between PRO, YEC
+     and TOS to three times the height of the letters. The frame's own leading
+     is generous because the folder and the creeper sit in the gaps; blown up
+     by the phone's proportions it stopped reading as one word.
+
+     So there is one mapping rule now instead of two: everything is a
+     proportion of the cover's WIDTH, and every vertical position is stated as
+     a multiple of --pitch, the distance from one line of the title to the
+     next. The three lines are then set as a block and centred, and the artwork
+     keeps the offset from PRO it has in the frame — measured there in frame
+     heights and divided by the frame's own 36.4%-of-height line pitch, so
+     tightening the leading pulls the whole composition together with it
+     instead of leaving the drawings stranded where the letters used to be.
+
+     `left` and `top` are always where the INK should land, and each element
+     then pulls itself back by the transparent padding inside its own box.
+     Expressed as a percentage of that box the correction scales with the
+     element, so none of it needs calc(). All four paddings were measured off
+     the assets rather than guessed:
+       folder.png     ink starts 25.19% / 25.60% into its 540x500 canvas
+       minecraft.png  ink starts 16.17% / 11.94% into its 402x402 canvas
+       DotGothic16    ink starts  2.00% /  4.65% into a line-height 0.85 box
+       the burst      its hub sits at 56.4% / 47.8% of the polygon's bbox
+     --------------------------------------------------------------------- */
+
+  /* the yellow star is the desktop composition; the frame uses the blue one */
+  .projects__star { display: none; }
+
+  .projects__word {
+    font-size: var(--word);
+    transform: translate(-2%, -4.65%);
+  }
+  /* the horizontal staircase is the frame's, untouched — only the leading
+     changed. One --pitch apart, so the three read as one word again. */
+  .projects__word--pro { left: 12.9%; top: var(--top); }
+  .projects__word--yec { left: 43.2%; top: calc(var(--top) + var(--pitch)); }
+  .projects__word--tos { left: 14%; top: calc(var(--top) + 2 * var(--pitch)); }
+
+  .projects__burst {
+    display: block;
+    position: absolute;
+    left: 75%;
+    /* frame: hub 82.8% of H, PRO 6.5% — 2.096 line pitches below it */
+    top: calc(var(--top) + 2.096 * var(--pitch));
+    width: 65%;
+    aspect-ratio: 941 / 933;
+    /* over the words — in the frame the burst covers the S of TOS */
+    z-index: 0;
+    transform: translate(-56.4%, -47.8%);
+    /* spin about the hub, not the bbox centre, so the point pinned at 81.8% /
+       82.8% is the one that stays still */
+    transform-origin: 56.4% 47.8%;
+    animation: proj-burst-spin 40s linear infinite;
+  }
+  @keyframes proj-burst-spin {
+    from { transform: translate(-56.4%, -47.8%) rotate(0deg); }
+    to { transform: translate(-56.4%, -47.8%) rotate(-360deg); }
+  }
+
+  /* Behind the letters: with the lines this close the artwork runs under them,
+     and the type has to win. z-index 1 puts both under .projects__word's 2. */
+  .projects__folder {
+    /* the base rule anchors this one by `right` — reset it, or both edges
+       would be constrained at once and the width would be ignored */
+    right: auto;
+    left: 47.4%;
+    /* frame: ink top 3.2% of H against PRO's 6.5% — just under a tenth of a
+       line pitch above it */
+    top: calc(var(--top) - 0.091 * var(--pitch));
+    width: 93.9%;
+    transform: translate(-25.19%, -25.6%);
+    z-index: 1;
+  }
+  .projects__mc {
+    left: 10%;
+    /* frame: ink top 37.7% of H — 0.857 pitches below PRO, so it lands between
+       YEC and TOS exactly as drawn */
+    top: calc(var(--top) + 0.94 * var(--pitch));
+    width: 60%;
+    transform: translate(-16.17%, -11.94%);
+    z-index: 0;
+  }
+
+  /* No corner marks here. They used to be switched on for the mobile frame, but
+     Projects is the one section that SCROLLS — so marks pinned to its own box
+     travelled up the screen with it while the About's identical marks sat still
+     underneath, and for the length of the handover there were two sets of dots
+     moving against each other. The About's are fixed to the viewport and now
+     stay lit for the rest of the page, so the corners are already occupied:
+     drawing a second, moving pair on top only fought them. The base rule above
+     keeps .projects__corner at display: none. */
+
+  .projects__list {
+    order: 2;
+    padding: 2vh clamp(16px, 4vw, 24px) 8vh;
+    gap: clamp(28px, 5vh, 48px);
+  }
+  .project__title { font-size: clamp(20px, 5.6vw, 30px); }
+
+  .project-modal { padding: 4vh 5vw; }
+  .project-modal__box {
+    max-height: 86svh;
+    /* keeps a scroll gesture that reaches the end of the modal from chaining
+       through to the page behind it */
+    overscroll-behavior: contain;
+  }
 }
 </style>

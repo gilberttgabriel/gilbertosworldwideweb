@@ -1,72 +1,77 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import calmEyes from '../assets/eyes/calm.png'
 import doubtEyes from '../assets/eyes/doubt.png'
 import seriousEyes from '../assets/eyes/serious.png'
 
 const emit = defineEmits<{ done: [] }>()
 
-type Stage = 'idle' | 'asking' | 'input' | 'submitted' | 'welcome' | 'leaving'
+type Stage = 'idle' | 'loading' | 'leaving'
 const stage = ref<Stage>('idle')
 
 const currentArt = ref(seriousEyes)
 
-const typedText = ref('')
-const inputValue = ref('')
-const inputEl = ref<HTMLInputElement | null>(null)
+const loadingPercent = ref(0)
 
 const stageEl = ref<HTMLElement | null>(null)
 const dotsExpanded = ref(false)
 const showDots = ref(false)
 
-async function typewrite(text: string, target: (v: string) => void, speed = 55) {
-  target('')
-  for (let i = 0; i < text.length; i++) {
-    target(text.slice(0, i + 1))
-    await new Promise((r) => setTimeout(r, speed))
-  }
-}
-
 async function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms))
+}
+
+const LOADING_MS = 3000
+// keeps the eyes changing expression for the whole loading bar duration,
+// instead of sitting frozen on one static image while the user waits
+const loadingArtCycle = [seriousEyes, doubtEyes, calmEyes, doubtEyes]
+function runLoadingEyes() {
+  let i = 0
+  const id = setInterval(() => {
+    i = (i + 1) % loadingArtCycle.length
+    currentArt.value = loadingArtCycle[i] ?? seriousEyes
+  }, LOADING_MS / (loadingArtCycle.length * 2))
+  return () => clearInterval(id)
+}
+
+async function runLoadingBar() {
+  const start = performance.now()
+  return new Promise<void>((resolve) => {
+    // a timer, not requestAnimationFrame: rAF stops dead while the tab isn't
+    // visible, so glancing away or letting the screen lock during these three
+    // seconds stranded the bar at 0% and the intro never handed off to the
+    // hero — the page just sat on the eyes forever. Timers keep firing when
+    // hidden (throttled, but firing), and progress is read off the clock
+    // rather than counted per tick, so it still lands exactly on time however
+    // irregular those ticks turn out to be.
+    const id = setInterval(() => {
+      const t = Math.min(1, (performance.now() - start) / LOADING_MS)
+      loadingPercent.value = Math.round(t * 100)
+      if (t >= 1) {
+        clearInterval(id)
+        resolve()
+      }
+    }, 50)
+  })
 }
 
 async function runSequence() {
   await sleep(500)
 
-  // "quien eres???" typewriting
-  stage.value = 'asking'
-  await typewrite('quien eres???', (v) => (typedText.value = v))
-  await sleep(150)
-
-  // eyebrow raises: swap art
-  currentArt.value = doubtEyes
-  await sleep(500)
-
-  // input bar appears
-  stage.value = 'input'
-  await nextTick()
-  inputEl.value?.focus()
-}
-
-async function submitName() {
-  if (stage.value !== 'input' || !inputValue.value.trim()) return
-  const name = inputValue.value.trim()
-  stage.value = 'submitted'
-  currentArt.value = seriousEyes
-  await sleep(700)
+  // loading bar takes over from the old "quien eres???" question — the
+  // eyes keep cycling expressions the whole time so it doesn't feel static
+  stage.value = 'loading'
+  const stopEyes = runLoadingEyes()
+  await runLoadingBar()
+  stopEyes()
 
   currentArt.value = calmEyes
-  typedText.value = ''
-  stage.value = 'welcome'
-  await sleep(200)
-  await typewrite(`bienvenido ${name}`, (v) => (typedText.value = v), 45)
 
-  // 4 dots appear solidly (centered) once the welcome has finished typing
+  // 4 dots appear solidly (centered) once the loading bar has finished
   showDots.value = true
   await sleep(200)
 
-  // eyes + text fade away, dots stay put
+  // eyes fade away, dots stay put
   stage.value = 'leaving'
   await sleep(300)
 
@@ -95,29 +100,11 @@ onUnmounted(() => {
       </div>
 
       <div class="intro__caption-slot" aria-live="polite">
-        <p v-if="stage === 'asking' || stage === 'input'" class="intro__caption">
-          {{ typedText }}<span class="caret">|</span>
-        </p>
-
-        <p v-if="stage === 'welcome'" class="intro__caption">
-          {{ typedText }}<span class="caret">|</span>
-        </p>
-
-        <form v-if="stage === 'input'" class="intro__form" @submit.prevent="submitName">
-          <input
-            ref="inputEl"
-            v-model="inputValue"
-            type="text"
-            class="intro__input"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <button type="submit" class="intro__submit" aria-label="Enviar">
-            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M4 12.5L9.5 18L20 6" stroke="#ff3d00" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </button>
-        </form>
+        <div v-if="stage === 'loading'" class="intro__loading">
+          <div class="intro__loading-track">
+            <div class="intro__loading-fill" :style="{ width: loadingPercent + '%' }" />
+          </div>
+        </div>
       </div>
     </div>
 
@@ -191,61 +178,20 @@ onUnmounted(() => {
   width: max-content;
 }
 
-.intro__caption {
-  font-family: 'Courier Prime', 'Courier New', monospace;
-  font-weight: 700;
-  color: #ff3d00;
-  font-size: clamp(16px, 2.2vw, 28px);
-  white-space: nowrap;
-  text-align: center;
+.intro__loading {
+  width: clamp(160px, 26vw, 260px);
 }
-
-.caret {
-  opacity: 1;
+.intro__loading-track {
+  width: 100%;
+  height: 4px;
+  background: #e5e2da;
+  border-radius: 2px;
+  overflow: hidden;
 }
-
-.intro__form {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  animation: fade-in 0.35s ease-out;
-}
-
-.intro__input {
-  width: clamp(120px, 24vw, 240px);
-  border: none;
-  border-bottom: 2px solid #e5e2da;
-  background: transparent;
-  padding: 4px 2px 8px;
-  font-family: 'Courier Prime', 'Courier New', monospace;
-  font-size: clamp(14px, 1.4vw, 17px);
-  color: #1a1a1a;
-  text-align: center;
-  outline: none;
-  transition: border-color 0.2s ease;
-}
-.intro__input::placeholder {
-  color: #cfcbc0;
-}
-.intro__input:focus {
-  border-bottom-color: #ff3d00;
-}
-
-.intro__submit {
-  border: none;
-  background: none;
-  cursor: pointer;
-  line-height: 0;
-  padding: 0;
-}
-.intro__submit svg {
-  width: 20px;
-  height: 20px;
-}
-
-@keyframes fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+.intro__loading-fill {
+  height: 100%;
+  background: #ff3d00;
+  transition: width 0.1s linear;
 }
 
 .intro__transition-dots {
@@ -283,4 +229,57 @@ onUnmounted(() => {
 .is-expanded .transition-dot--tr { left: calc(100vw - clamp(12px, 2.5vw, 32px)); top: clamp(12px, 2.5vw, 32px); }
 .is-expanded .transition-dot--br { left: calc(100vw - clamp(12px, 2.5vw, 32px)); top: calc(100vh - clamp(12px, 2.5vw, 32px)); }
 .is-expanded .transition-dot--bl { left: clamp(12px, 2.5vw, 32px); top: calc(100vh - clamp(12px, 2.5vw, 32px)); }
+
+@media (max-width: 760px) {
+  /* Centering the welcome, measured rather than guessed.
+     serious.png's ink leaves 8.99% transparent on the left and 7.73% on the
+     right: the drawing does sit 1.26% of its width off-centre in its own
+     canvas, so half of that — 0.63%, 1.6px on a phone — is the entire
+     horizontal correction it ever needed. The translateX(-5vw) that used to
+     live here was eight times that, which is why the eyes read as shoved to
+     the left. It moves with the stack now rather than being applied to the art
+     and the caption slot separately, so the loading bar cannot drift out of
+     line with the eyes above it.
+
+     Vertically the ink runs 42.10% -> 84.95% down the canvas; the top 42% is
+     empty. So flex-centring the .intro__stack centres a box that is mostly
+     transparent air, and the visible composition floats high — the -6vh on
+     top of that pushed it higher still. What should be centred is what can be
+     seen: the eyes plus the loading bar.
+
+       art height  = --w / (1112/525) = 0.4721 * --w
+       group       = ink top (0.4210 * art) -> bar bottom (art + 8px)
+       its centre sits 0.2105 * art - 36px below the stack's own centre
+
+     so translating back by that amount lands the composition on the middle of
+     the screen. 0.2105 * 0.4721 = 0.09937 of --w. --w restates the base
+     width so the correction holds on a short screen too, where the 52vh term
+     wins and the art is smaller than 66vw would make it. */
+  .intro__stack {
+    --w: min(66vw, calc(52vh * 1112 / 525), 94vw);
+    transform: translate(calc(-0.0063 * var(--w)), calc(36px - 0.09937 * var(--w)));
+  }
+
+  /* the cluster starts where the eyes are, so it flows to the corners in one
+     motion instead of jumping first. With the stack centred the ink's middle
+     lands a touch above the screen's, not at the old 46%. */
+  .transition-dot--br,
+  .transition-dot--bl {
+    top: calc(48% + 9px);
+  }
+  .transition-dot--tl,
+  .transition-dot--tr {
+    top: calc(48% - 9px);
+  }
+
+  /* the dots are position: fixed, so they land against the edge of what's
+     actually on screen — but 100vh on a phone measures the taller layout
+     viewport that continues behind the browser's URL bar, so the bottom two
+     would fly off past the visible edge and miss the Hero's corner marks
+     they're supposed to hand off to. dvh is the edge the user can see. */
+  .is-expanded .transition-dot--br,
+  .is-expanded .transition-dot--bl {
+    top: calc(100dvh - clamp(12px, 2.5vw, 32px));
+  }
+}
 </style>

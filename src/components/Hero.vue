@@ -1,11 +1,30 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps<{ ready?: boolean }>()
 const emit = defineEmits<{ done: [] }>()
 
-const titleFull = 'GILBERTO’S\n      WORLDWIDE\nWEB        SPACE'
-const tagEsFull = 'desarrollador creativo\necléctico\nme gusta crear'
+// the phone is its own frame in Figma, not the desktop one squeezed: there the
+// gaps baked into the title are tighter, so its longest line is 13 characters
+// instead of 16 — which is exactly what lets it run edge to edge on a narrow
+// screen at a size that still reads as the same composition. Those gaps are
+// literal characters inside a white-space: pre string, so they're content and
+// the breakpoint has to be read here; no stylesheet can reach them.
+const NARROW = '(max-width: 760px)'
+const narrow = ref(window.matchMedia(NARROW).matches)
+
+const titleFull = computed(() =>
+  narrow.value
+    ? 'GILBERTO’S\n   WORLDWIDE\nWEB     SPACE'
+    : 'GILBERTO’S\n      WORLDWIDE\nWEB        SPACE',
+)
+// the phone frame carries a single tagline box, and its last line is the
+// English one — the two-column es/en split only exists on the wide layout
+const tagEsFull = computed(() =>
+  narrow.value
+    ? 'desarrollador creativo\necléctico\nlet’s create'
+    : 'desarrollador creativo\necléctico\nme gusta crear',
+)
 const tagEnFull = 'creative developer\neclectic\nlet’s create'
 
 const titleText = ref('')
@@ -32,11 +51,11 @@ async function typewrite(full: string, target: (v: string) => void, speed = 55) 
 
 async function run() {
   started.value = true
-  await typewrite(titleFull, (v) => (titleText.value = v), 60)
+  await typewrite(titleFull.value, (v) => (titleText.value = v), 60)
   await sleep(250)
   tagsStarted.value = true
   await Promise.all([
-    typewrite(tagEsFull, (v) => (tagEsText.value = v), 30),
+    typewrite(tagEsFull.value, (v) => (tagEsText.value = v), 30),
     typewrite(tagEnFull, (v) => (tagEnText.value = v), 30),
   ])
   await sleep(200)
@@ -55,6 +74,102 @@ watch(
   },
   { immediate: true },
 )
+
+const heroEl = ref<HTMLElement | null>(null)
+const titleEl = ref<HTMLElement | null>(null)
+
+// the title is white-space: pre, so it can never wrap — its width is however
+// wide the loaded font renders those three lines, which no CSS clamp() can
+// predict: the fallback the browser uses while DotGothic16 is still arriving
+// is measurably wider, and every phone has a different viewport anyway. So
+// measure the real thing against the room this screen actually has and pull
+// the size down only by however much it overflows. On a screen where it
+// already fits (desktop) this changes nothing.
+function fitTitle() {
+  const el = titleEl.value
+  const host = heroEl.value
+  if (!el || !host) return
+  // drop any previous correction first, so we always measure the size the
+  // stylesheet asked for rather than compounding our own adjustments
+  el.style.fontSize = ''
+  const cs = getComputedStyle(host)
+  const available =
+    host.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+  // measure the ghost span, never the <h1>. .hero__content is capped at
+  // max-width: 100%, so the heading's own box stops growing at the container
+  // edge and the text spills out of it instead — meaning the heading always
+  // measures as exactly "fits" no matter how far the text actually runs past
+  // the screen. The ghost is inline, so its box is the real rendered width of
+  // the longest line.
+  const measured = el.querySelector<HTMLElement>('.hero__ghost') ?? el
+  const natural = measured.getBoundingClientRect().width
+  if (!available || !natural || natural <= available) return
+  const size = parseFloat(getComputedStyle(el).fontSize)
+  // the 0.995 absorbs sub-pixel rounding, which on a phone is enough to leave
+  // the last character clipped
+  el.style.fontSize = `${(size * available * 0.995) / natural}px`
+}
+
+let fitRaf = 0
+function scheduleFit() {
+  cancelAnimationFrame(fitRaf)
+  fitRaf = requestAnimationFrame(fitTitle)
+}
+
+// rotating across the breakpoint swaps those strings underneath text that has
+// already finished typing, which would leave the visible copy and the ghost
+// that reserves its box disagreeing about how wide the block is. Re-sync only
+// what is already complete: if the typewriter is still mid-word, leave it be
+// rather than snapping the animation to the end.
+const mql = window.matchMedia(NARROW)
+function onMq(e: MediaQueryListEvent) {
+  narrow.value = e.matches
+}
+watch(titleFull, (v, old) => {
+  if (titleText.value === old) titleText.value = v
+  scheduleFit()
+})
+watch(tagEsFull, (v, old) => {
+  if (tagEsText.value === old) tagEsText.value = v
+})
+
+let ro: ResizeObserver | null = null
+
+onMounted(async () => {
+  mql.addEventListener('change', onMq)
+  fitTitle()
+
+  // watching the section itself catches every width change, including the
+  // ones a phone makes without firing a resize event (URL bar collapsing,
+  // rotation). Observing .hero and resizing only the title inside it means
+  // this can't feed back into itself.
+  if ('ResizeObserver' in window && heroEl.value) {
+    ro = new ResizeObserver(scheduleFit)
+    ro.observe(heroEl.value)
+  }
+  window.addEventListener('resize', scheduleFit)
+  window.addEventListener('orientationchange', scheduleFit)
+
+  // the webfont swapping in changes every measurement. fonts.ready alone
+  // isn't enough — it resolves as soon as nothing is pending, which can be
+  // before Google's stylesheet has even asked for the face — so name the
+  // font explicitly and wait for that.
+  try {
+    const fonts = (document as unknown as { fonts: FontFaceSet }).fonts
+    await fonts.load('1em DotGothic16')
+    await fonts.ready
+    fitTitle()
+  } catch {
+    /* ignore */
+  }
+})
+onUnmounted(() => {
+  ro?.disconnect()
+  mql.removeEventListener('change', onMq)
+  window.removeEventListener('resize', scheduleFit)
+  window.removeEventListener('orientationchange', scheduleFit)
+  cancelAnimationFrame(fitRaf)
+})
 
 // scrolls to y and resolves once the browser's smooth-scroll has actually
 // settled there (not just "animation started"), so a second scroll queued
@@ -87,7 +202,7 @@ async function handleNavClick(item: string) {
 </script>
 
 <template>
-  <section class="hero" :class="{ 'is-ready': ready }">
+  <section ref="heroEl" class="hero" :class="{ 'is-ready': ready }">
     <div v-if="started" class="hero__grid" aria-hidden="true" />
 
     <span class="hero__corner hero__corner--tl" />
@@ -110,7 +225,7 @@ async function handleNavClick(item: string) {
         />
       </svg>
 
-      <h1 class="hero__title">
+      <h1 ref="titleEl" class="hero__title">
         <span class="hero__ghost" aria-hidden="true">{{ titleFull }}</span>
         <span class="hero__typed">{{ titleText }}<span v-if="started" class="caret">|</span></span>
       </h1>
@@ -340,23 +455,92 @@ async function handleNavClick(item: string) {
   opacity: var(--blink);
 }
 
-/* portrait: title centered with lines spread vertically; framed tags move to
-   the top/bottom extremes so they use the height and never overlap the title */
-@media (orientation: portrait) {
+/* mobile: its own composition, taken from the phone frame in Figma. The
+   collage re-centres rather than restacking — the star grows to nearly the
+   full width of the screen and burns *behind the middle* of the title instead
+   of off to its right, the three title lines spread far apart so each one
+   lands on a different part of the star, and only two framed boxes survive:
+   the tagline pinned top-right and the nav low and left of centre.
+   Everything here is written against the title's own em or against the
+   viewport width — never against a device's pixel height — so the pieces hold
+   their relationship to each other as one composition on any phone, instead
+   of needing a set of numbers per screen size. */
+@media (max-width: 760px) {
+  .hero {
+    /* the parent (.page__hero) is fixed to the viewport here, so the base
+       height: 100% already measures exactly one screen — this just stops the
+       svh floor from ever forcing it taller than what's actually visible */
+    min-height: 0;
+    /* the title is meant to reach for the edges, so the gutter shrinks to
+       roughly what the frame leaves around it */
+    padding: clamp(16px, 4vh, 48px) clamp(10px, 3vw, 24px);
+  }
+
+  /* 13 characters on the longest line at DotGothic16's measured 0.5em advance
+     is 6.5em, which at 13.3vw comes to 86% of the screen — the edge-to-edge
+     look of the frame, with the gutter left over. The svh term only bites on a
+     short or landscape viewport: the block below stands 8.8em tall, so capping
+     the em at 9svh keeps it on screen there rather than letting .hero clip it.
+     fitTitle() still measures the real render and trims if a device disagrees. */
   .hero__title {
-    /* spread the 3 lines out to use the extra vertical room on phones */
-    line-height: 2.6;
+    font-size: min(13.3vw, 9svh);
+    /* the lines sit deliberately far apart: GILBERTO'S clears the top of the
+       star, WORLDWIDE crosses its middle and WEB SPACE lands on its bottom
+       point. This single number is what holds that three-way alignment. */
+    line-height: 2.94;
   }
-  .hero__tag {
-    font-size: clamp(15px, 3.4vw, 30px);
+
+  /* sized and placed against .hero__content — the title's own box — rather
+     than the viewport, so the alignment above survives at any size: 114% of
+     the title's width, centred a third of a line below WORLDWIDE. It runs
+     past the right edge exactly as it does in the frame; .hero's
+     overflow: hidden is what trims it. */
+  .hero__star {
+    left: 57.2%;
+    top: 53.5%;
+    width: 114.4%;
   }
+
+  /* one tagline on this frame, hard into the top-right corner. It clears the
+     corner mark horizontally (the mark sits further right than the frame's
+     edge), so it can sit that high without colliding. */
   .hero__tagframe--es {
-    top: 5%;
-    right: 8%;
+    right: 6%;
+    top: 7%;
   }
   .hero__tagframe--en {
-    top: 42%;
-    left: 5%;
+    display: none;
+  }
+  /* these are absolutely positioned, so they shrink-to-fit their own text —
+     and that text is white-space: pre, which can't wrap. Left alone, a frame
+     simply grows as wide as its longest line and walks off the screen. The
+     cap plus pre-wrap makes that structurally impossible: it can't exceed the
+     screen, and if a line ever would, it wraps instead of overflowing. */
+  .hero__tagframe {
+    max-width: 92%;
+    padding: 6px 8px;
+  }
+  .hero__tag {
+    white-space: pre-wrap;
+    font-size: clamp(12px, 4.2vw, 22px);
+    line-height: 1.35;
+  }
+
+  /* left of centre and low, under the last title line. The title block's box
+     reaches further down than its glyphs do (half a 2.94 line-height of
+     leading hangs below WEB SPACE), so these two overlap as boxes and never
+     visually — and the nav's higher z-index keeps it clickable regardless. */
+  .hero__nav {
+    left: 29%;
+    bottom: 8%;
+    padding: 6px 8px;
+  }
+  .hero__navlist {
+    gap: 0;
+  }
+  .hero__navlink {
+    font-size: clamp(12px, 4.2vw, 22px);
+    line-height: 1.35;
   }
 }
 </style>
